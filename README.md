@@ -1,6 +1,16 @@
 # OpenCL-Layers
 A collection of OpenCL layers.
 
+## Layers
+
+* `simple-print`: traces OpenCL API calls.
+* `ocl-icd-compat`: ocl-icd compatibility layer.
+* `object-lifetime`: checks the lifetime of OpenCL objects.
+* `param-verification`: validates the arguments of OpenCL API calls.
+* `command-buffer-record`: adds a queue recording API on top of
+  `cl_khr_command_buffer` (draft, see
+  [command-buffer-record/README.md](command-buffer-record/README.md)).
+
 ## Building
 
 The layers in this repository can be built using CMake:

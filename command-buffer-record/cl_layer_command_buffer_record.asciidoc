@@ -1,0 +1,417 @@
+// Copyright (c) 2024 The Khronos Group Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+:data-uri:
+:icons: font
+include::../config/attribs.txt[]
+include::{generated}/api/api-dictionary.asciidoc[]
+
+= cl_layer_command_buffer_record
+
+== Name Strings
+
+`cl_layer_command_buffer_record`
+
+== Contact
+
+Please see the *OpenCL-Layers* repository issue tracker:
+https://github.com/KhronosGroup/OpenCL-Layers
+
+== Contributors
+
+// spell-checker: disable
+OpenCL-Layers contributors. +
+// spell-checker: enable
+
+== Notice
+
+include::../copyrights.txt[]
+
+== Status
+
+Draft, provided as a layer implementation only. This is *not* a ratified
+Khronos extension.
+
+== Version
+
+Built On: {docdate} +
+Revision: 0.1.0
+
+== Dependencies
+
+This extension is written against the OpenCL Specification version 3.0.14.
+
+This extension requires the `cl_khr_command_buffer` extension, and is
+implemented by an OpenCL layer, not by an OpenCL implementation. The
+extension name is only reported by a platform when the layer is loaded and
+the underlying platform supports `cl_khr_command_buffer`.
+
+== Overview
+
+The `cl_khr_command_buffer` extension requires an application to explicitly
+record commands into a command-buffer object with a dedicated set of
+*clCommand&lowast;KHR* entry points. Applications with an existing enqueue
+based code path therefore have to be restructured, often duplicating their
+command submission logic, before they can benefit from command-buffers.
+
+This extension defines a *recording* mode for command-queues. While a
+command-queue is recording, the commands enqueued to it with the regular
+*clEnqueue&lowast;* entry points are not submitted for execution; they are
+recorded into a command-buffer instead. When recording ends, a finalized
+`cl_command_buffer_khr` object is returned, which can be replayed any number
+of times with *clEnqueueCommandBufferKHR*.
+
+This mirrors the capture mechanisms of other APIs, such as CUDA stream
+capture and the SYCL graph record and replay API, while producing a regular
+`cl_khr_command_buffer` object as its result.
+
+== New API Types
+
+[source,opencl]
+----
+typedef cl_uint cl_queue_recording_info_layer;
+typedef cl_uint cl_queue_recording_state_layer;
+----
+
+== New API Functions
+
+[source,opencl]
+----
+cl_int clBeginRecordingCommandBufferLAYER(
+    cl_uint num_queues,
+    const cl_command_queue* queues,
+    const cl_command_buffer_properties_khr* properties);
+
+cl_int clEndRecordingCommandBufferLAYER(
+    cl_command_queue command_queue,
+    cl_command_buffer_khr* command_buffer_ret);
+
+cl_int clGetRecordedCommandBufferLAYER(
+    cl_command_queue command_queue,
+    cl_command_buffer_khr* command_buffer_ret);
+
+cl_int clGetCommandQueueRecordingInfoLAYER(
+    cl_command_queue command_queue,
+    cl_queue_recording_info_layer param_name,
+    size_t param_value_size,
+    void* param_value,
+    size_t* param_value_size_ret);
+----
+
+== New API Enums
+
+Accepted value for the _param_name_ parameter to
+*clGetCommandQueueRecordingInfoLAYER*:
+
+[source,opencl]
+----
+CL_QUEUE_RECORDING_STATE_LAYER              0x8000
+CL_QUEUE_RECORDED_COMMAND_BUFFER_LAYER      0x8001
+CL_QUEUE_RECORDED_COMMAND_COUNT_LAYER       0x8002
+----
+
+Returned values of type `cl_queue_recording_state_layer`:
+
+[source,opencl]
+----
+CL_QUEUE_RECORDING_STATE_NONE_LAYER         0
+CL_QUEUE_RECORDING_STATE_RECORDING_LAYER    1
+CL_QUEUE_RECORDING_STATE_FINALIZED_LAYER    2
+----
+
+== Modifications to the OpenCL API Specification
+
+=== Command-Queue Recording State
+
+A command-queue is in one of the following recording states:
+
+  * *none*, the default state, where enqueued commands are scheduled for
+    execution with their usual semantics.
+  * *recording*, where commands enqueued to the command-queue are recorded
+    into the command-buffer of the recording session the command-queue takes
+    part in, and are not executed.
+  * *finalized*, where the command-queue is no longer recording and the
+    command-buffer produced by its latest recording session is available for
+    retrieval.
+
+The recording state of a command-queue can be queried with
+*clGetCommandQueueRecordingInfoLAYER*.
+
+=== Beginning a Recording Session
+
+To place command-queues into the recording state, call the function
+
+[source,opencl]
+----
+cl_int clBeginRecordingCommandBufferLAYER(
+    cl_uint num_queues,
+    const cl_command_queue* queues,
+    const cl_command_buffer_properties_khr* properties);
+----
+
+  * _num_queues_ is the number of command-queues to record.
+  * _queues_ is a pointer to a list of _num_queues_ command-queues.
+  * _properties_ is a list of properties terminated with 0, passed verbatim
+    to *clCreateCommandBufferKHR*.
+
+*clBeginRecordingCommandBufferLAYER* creates a command-buffer over _queues_
+as if by a call to *clCreateCommandBufferKHR*, and places each command-queue
+in _queues_ into the recording state. The created command-buffer is owned by
+the recording session.
+
+*clBeginRecordingCommandBufferLAYER* returns `CL_SUCCESS` if the
+command-queues were placed into the recording state. Otherwise, it returns
+one of the following errors:
+
+  * `CL_INVALID_VALUE` if _num_queues_ is zero or if _queues_ is `NULL`.
+  * `CL_INVALID_COMMAND_QUEUE` if any command-queue in _queues_ is not a
+    valid command-queue, or is already in the recording state.
+  * `CL_INVALID_OPERATION` if the platform of _queues_ does not support the
+    `cl_khr_command_buffer` extension.
+  * Any error returned by *clCreateCommandBufferKHR*.
+
+=== Recording Commands
+
+While a command-queue is in the recording state, a command enqueued to it is
+recorded into the command-buffer of the recording session, using the
+corresponding command recording entry point of the `cl_khr_command_buffer`
+extension, as described in the following table, and is not submitted for
+execution.
+
+[cols="1,1",options="header"]
+|====
+| Enqueue entry point            | Recorded with
+| *clEnqueueNDRangeKernel*       | *clCommandNDRangeKernelKHR*
+| *clEnqueueCopyBuffer*          | *clCommandCopyBufferKHR*
+| *clEnqueueCopyBufferRect*      | *clCommandCopyBufferRectKHR*
+| *clEnqueueFillBuffer*          | *clCommandFillBufferKHR*
+| *clEnqueueCopyImage*           | *clCommandCopyImageKHR*
+| *clEnqueueCopyImageToBuffer*   | *clCommandCopyImageToBufferKHR*
+| *clEnqueueCopyBufferToImage*   | *clCommandCopyBufferToImageKHR*
+| *clEnqueueFillImage*           | *clCommandFillImageKHR*
+| *clEnqueueBarrierWithWaitList* | *clCommandBarrierWithWaitListKHR*
+| *clEnqueueMarkerWithWaitList*  | *clCommandBarrierWithWaitListKHR*
+|====
+
+The arguments of a recorded command are captured at the time the command is
+enqueued, matching the capture semantics of the `cl_khr_command_buffer`
+recording entry points.
+
+If an _event_ is requested, the returned event is a *recording event*: it
+identifies the sync-point of the recorded command and can be passed in the
+_event_wait_list_ of subsequent commands, but it never completes. Passing a
+recording event to *clWaitForEvents*, or using it in the _event_wait_list_ of
+a command that is not recorded into the same command-buffer, returns
+`CL_INVALID_OPERATION`. All recording events of a recording session are
+released when the recording session ends.
+
+An event in the _event_wait_list_ of a recorded command that is a recording
+event of the same recording session is translated into the corresponding
+`cl_sync_point_khr` of the command-buffer. Any other event in the
+_event_wait_list_ returns `CL_INVALID_EVENT_WAIT_LIST`.
+
+Enqueuing to a command-queue in the recording state a command that has no
+counterpart in the `cl_khr_command_buffer` extension, including host
+transfers such as *clEnqueueReadBuffer*, *clEnqueueWriteBuffer* and
+*clEnqueueMapBuffer*, returns `CL_INVALID_OPERATION`, and no command is
+recorded.
+
+*clFlush* on a command-queue in the recording state returns `CL_SUCCESS` and
+has no other effect.
+
+=== Transitive Queue Recording
+
+Enqueuing a command to a command-queue that is not in the recording state can
+implicitly place that command-queue into the recording state. This occurs
+when the _event_wait_list_ of the command contains an event returned by a
+command-queue in the recording state. The change of state happens before the
+command is recorded, so the command becomes part of the command-buffer of
+that recording session.
+
+A command-queue placed into the recording state by this mechanism behaves as
+if it had been passed to *clBeginRecordingCommandBufferLAYER*. In particular,
+it remains in the recording state until the recording session ends, and it
+inherits the properties of that recording session.
+
+Since the command-queues of a command-buffer are fixed at creation time, the
+commands of a transitively recording command-queue are recorded with the
+command-queue of the recording session that shares its device. If no
+command-queue of the recording session shares the device of the transitively
+recording command-queue, `CL_INVALID_COMMAND_QUEUE` is returned and no
+command is recorded.
+
+=== Ending a Recording Session
+
+To end a recording session and obtain its finalized command-buffer, call the
+function
+
+[source,opencl]
+----
+cl_int clEndRecordingCommandBufferLAYER(
+    cl_command_queue command_queue,
+    cl_command_buffer_khr* command_buffer_ret);
+----
+
+  * _command_queue_ is a command-queue taking part in the recording session.
+  * _command_buffer_ret_ returns the finalized command-buffer.
+
+*clEndRecordingCommandBufferLAYER* finalizes the command-buffer of the
+recording session as if by a call to *clFinalizeCommandBufferKHR*, and
+returns every command-queue of the recording session to the *none* recording
+state. Ownership of the command-buffer returned in _command_buffer_ret_ is
+transferred to the caller, which must release it with
+*clReleaseCommandBufferKHR*.
+
+*clEndRecordingCommandBufferLAYER* returns `CL_SUCCESS` if the recording
+session was ended. Otherwise, it returns one of the following errors:
+
+  * `CL_INVALID_VALUE` if _command_buffer_ret_ is `NULL`.
+  * `CL_INVALID_OPERATION` if _command_queue_ is not in the recording state.
+  * Any error returned by *clFinalizeCommandBufferKHR*.
+
+Calling *clFinish* on a command-queue in the recording state ends the
+recording session with the same effects, except that the command-buffer is
+retained by the recording session and each of its command-queues is placed
+into the *finalized* recording state. Since no command of the recording
+session was submitted for execution, *clFinish* does not block. The
+command-buffer is then obtained with
+
+[source,opencl]
+----
+cl_int clGetRecordedCommandBufferLAYER(
+    cl_command_queue command_queue,
+    cl_command_buffer_khr* command_buffer_ret);
+----
+
+The command-buffer returned in _command_buffer_ret_ is retained on behalf of
+the caller, which must release it with *clReleaseCommandBufferKHR*.
+
+*clGetRecordedCommandBufferLAYER* returns `CL_SUCCESS` if a command-buffer
+was returned. Otherwise, it returns one of the following errors:
+
+  * `CL_INVALID_VALUE` if _command_buffer_ret_ is `NULL`.
+  * `CL_INVALID_OPERATION` if _command_queue_ is not in the *finalized*
+    recording state.
+
+A command-buffer retained by a recording session is released when a new
+recording session is started on the command-queue, or when the command-queue
+is released.
+
+=== Querying the Recording State
+
+[source,opencl]
+----
+cl_int clGetCommandQueueRecordingInfoLAYER(
+    cl_command_queue command_queue,
+    cl_queue_recording_info_layer param_name,
+    size_t param_value_size,
+    void* param_value,
+    size_t* param_value_size_ret);
+----
+
+.List of supported param_names by clGetCommandQueueRecordingInfoLAYER
+[cols="1,1,2",options="header"]
+|====
+| Queue Recording Info | Return Type | Description
+| `CL_QUEUE_RECORDING_STATE_LAYER`
+  | `cl_queue_recording_state_layer`
+  | Return the recording state of _command_queue_.
+| `CL_QUEUE_RECORDED_COMMAND_BUFFER_LAYER`
+  | `cl_command_buffer_khr`
+  | Return the command-buffer retained by the recording session of
+    _command_queue_. The reference count of the command-buffer is not
+    modified.
+| `CL_QUEUE_RECORDED_COMMAND_COUNT_LAYER`
+  | `cl_uint`
+  | Return the number of commands recorded so far in the recording session
+    _command_queue_ takes part in, or zero if _command_queue_ is not in the
+    recording state.
+|====
+
+*clGetCommandQueueRecordingInfoLAYER* returns `CL_SUCCESS` if the query
+executed successfully. Otherwise, it returns one of the following errors:
+
+  * `CL_INVALID_VALUE` if _param_name_ is not one of the supported values, or
+    if _param_value_ is not `NULL` and _param_value_size_ is smaller than the
+    size of the return type.
+  * `CL_INVALID_OPERATION` if _param_name_ is
+    `CL_QUEUE_RECORDED_COMMAND_BUFFER_LAYER` and no command-buffer is
+    retained by a recording session of _command_queue_.
+
+== Sample Code
+
+[source,opencl]
+----
+cl_command_queue queue = /* ... */;
+cl_command_buffer_khr command_buffer = NULL;
+
+clBeginRecordingCommandBufferLAYER(1, &queue, NULL);
+
+// Recorded, not executed.
+clEnqueueFillBuffer(queue, buffer, &pattern, sizeof(pattern), 0, size,
+                    0, NULL, NULL);
+clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global_size, NULL,
+                       0, NULL, NULL);
+
+// Ends the recording session and finalizes the command-buffer.
+clFinish(queue);
+clGetRecordedCommandBufferLAYER(queue, &command_buffer);
+
+// Replay.
+for (int i = 0; i < iterations; ++i)
+  clEnqueueCommandBufferKHR(0, NULL, command_buffer, 0, NULL, NULL);
+
+clFinish(queue);
+clReleaseCommandBufferKHR(command_buffer);
+----
+
+== Issues
+
+. Should recording events be usable outside of the recording session, for
+   example to order the replay of the command-buffer?
++
+--
+*UNRESOLVED*: Recording events currently only identify sync-points of the
+command-buffer being recorded, and are invalidated when the recording session
+ends.
+--
+
+. Should host transfer commands be recordable?
++
+--
+*UNRESOLVED*: The `cl_khr_command_buffer` extension has no host transfer
+commands, so such enqueues return `CL_INVALID_OPERATION` while recording. An
+alternative is to execute them immediately, which breaks the fidelity of the
+replay.
+--
+
+. How should the implicit ordering of an in-order command-queue interact with
+   transitive queue recording?
++
+--
+*UNRESOLVED*: Commands of a transitively recording command-queue are recorded
+with a command-queue of the recording session, and therefore inherit its
+implicit recording order, which may add ordering that the application did not
+express.
+--
+
+== Revision History
+
+[cols="5,15,15,70"]
+[grid="rows"]
+[options="header"]
+|====
+| Version | Date       | Author | Changes
+| 0.1.0   | 2024-01-01 | -      | Initial draft.
+|====
