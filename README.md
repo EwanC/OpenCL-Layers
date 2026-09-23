@@ -9,7 +9,9 @@ A collection of OpenCL layers.
 * `param-verification`: validates the arguments of OpenCL API calls.
 * `command-buffer-record`: adds a queue recording API on top of
   `cl_khr_command_buffer` (draft, see
-  [command-buffer-record/README.md](command-buffer-record/README.md)).
+  [command-buffer-record/README.md](command-buffer-record/README.md)). This
+  directory is self contained, holding its own CMake project, documentation,
+  tests and CI workflow, so that it can be moved to a standalone repository.
 
 ## Building
 

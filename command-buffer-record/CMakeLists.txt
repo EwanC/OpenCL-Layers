@@ -1,45 +1,43 @@
-add_library (CLCommandBufferRecordLayer SHARED
-    command_buffer_record.cpp
-    command_buffer_record.hpp
-    cl_layer_command_buffer_record.h
-#   PLATFORM_ID taking a comma-separated list is CMake 3.15
-#   $<$<AND:$<PLATFORM_ID:Windows>,$<CXX_COMPILER_ID:MSVC,Clang>>:command_buffer_record.def>
-    $<$<AND:$<PLATFORM_ID:Windows>,$<OR:$<CXX_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:Clang>>>:command_buffer_record.def>
-    $<$<CXX_COMPILER_ID:GNU>:command_buffer_record.map>
-)
+# Copyright (c) 2024 The Khronos Group Inc.
+# SPDX-License-Identifier: Apache-2.0
 
-target_link_libraries (CLCommandBufferRecordLayer PRIVATE LayersCommon)
+cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-target_include_directories (CLCommandBufferRecordLayer
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-)
+# This directory is self contained so that it can be used either as the root of
+# a standalone repository, or as a sub-directory of a larger project such as the
+# OpenCL-Layers collection.
+if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    set(REC_STANDALONE_BUILD ON)
+else()
+    set(REC_STANDALONE_BUILD OFF)
+endif()
 
-if (NOT WIN32 AND NOT APPLE)
-    set_target_properties (CLCommandBufferRecordLayer PROPERTIES LINK_FLAGS "-Wl,--version-script -Wl,${CMAKE_CURRENT_SOURCE_DIR}/command_buffer_record.map")
-endif ()
+if (REC_STANDALONE_BUILD)
+    project(CLRecordLayer VERSION 0.1.0 LANGUAGES CXX)
+    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS OFF)
 
-set (INSTALL_TARGETS CLCommandBufferRecordLayer)
-set (BUILD_TARGETS ${INSTALL_TARGETS})
+    # Project defined CMake options
+    option(REC_DEBUG "Enable CLRecordLayer debug logging to stderr" OFF)
+    option(REC_OFFLINE_BUILD "Avoids pulling dependencies from GitHub" OFF)
 
-set_target_properties (${BUILD_TARGETS}
-    PROPERTIES
-        ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}"
-        LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}"
-        RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}"
-        PDB_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}"
-        INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}"
-        FOLDER "Layers"
-)
+    include(FetchContent)
+    if (REC_OFFLINE_BUILD)
+        find_package(OpenCLHeaders REQUIRED)
+        get_target_property(OpenCLIncludeDir OpenCL::Headers INTERFACE_INCLUDE_DIRECTORIES)
+    else()
+        FetchContent_Declare(OpenCL-Headers
+            GIT_REPOSITORY "https://github.com/KhronosGroup/OpenCL-Headers.git"
+            GIT_TAG main)
+        FetchContent_MakeAvailable(OpenCL-Headers)
+        FetchContent_GetProperties(OpenCL-Headers SOURCE_DIR OpenCLIncludeDir)
+    endif()
+    message(STATUS "OpenCL Include Directory: ${OpenCLIncludeDir}")
+endif()
 
-install (
-    TARGETS ${INSTALL_TARGETS}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+add_subdirectory(source)
 
-install (
-    FILES cl_layer_command_buffer_record.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/CL
-)
+if (REC_STANDALONE_BUILD)
+    add_subdirectory(test)
+endif()

@@ -16,7 +16,8 @@
  * OpenCL is a trademark of Apple Inc. used under license by Khronos.
  */
 
-#include "command_buffer_record.hpp"
+#include "command_buffer_record.h"
+#include "logger.h"
 
 #include <algorithm>
 #include <cstring>
@@ -26,24 +27,28 @@ const struct _cl_icd_dispatch *tdispatch;
 
 namespace {
 
+// The layer state is intentionally leaked, rather than being destroyed on
+// static destruction, as the ICD loader may call into the layer, e.g.
+// clDeinitLayer(), after the static destructors of the layer have run.
 std::mutex &mutex() {
-  static std::mutex m;
-  return m;
+  static std::mutex *m = new std::mutex();
+  return *m;
 }
 
 std::map<cl_command_queue, std::shared_ptr<recording_session>> &sessions() {
-  static std::map<cl_command_queue, std::shared_ptr<recording_session>> s;
-  return s;
+  static auto *s =
+      new std::map<cl_command_queue, std::shared_ptr<recording_session>>();
+  return *s;
 }
 
 std::map<cl_command_queue, cl_command_buffer_khr> &finalized() {
-  static std::map<cl_command_queue, cl_command_buffer_khr> f;
-  return f;
+  static auto *f = new std::map<cl_command_queue, cl_command_buffer_khr>();
+  return *f;
 }
 
 std::map<cl_platform_id, command_buffer_fns> &platform_fns() {
-  static std::map<cl_platform_id, command_buffer_fns> p;
-  return p;
+  static auto *p = new std::map<cl_platform_id, command_buffer_fns>();
+  return *p;
 }
 
 cl_platform_id queue_platform(cl_command_queue queue) {
@@ -83,8 +88,7 @@ bool queue_is_out_of_order(cl_command_queue queue) {
   return (properties & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE) != 0;
 }
 
-template <typename Fn>
-Fn resolve(cl_platform_id platform, const char *name) {
+template <typename Fn> Fn resolve(cl_platform_id platform, const char *name) {
   return reinterpret_cast<Fn>(
       tdispatch->clGetExtensionFunctionAddressForPlatform(platform, name));
 }
@@ -100,32 +104,32 @@ const command_buffer_fns *get_fns(cl_platform_id platform) {
     return it->second.create ? &it->second : nullptr;
 
   command_buffer_fns fns = {};
-  fns.create = resolve<clCreateCommandBufferKHR_fn>(
-      platform, "clCreateCommandBufferKHR");
+  fns.create = resolve<clCreateCommandBufferKHR_fn>(platform,
+                                                    "clCreateCommandBufferKHR");
   fns.finalize = resolve<clFinalizeCommandBufferKHR_fn>(
       platform, "clFinalizeCommandBufferKHR");
-  fns.retain = resolve<clRetainCommandBufferKHR_fn>(
-      platform, "clRetainCommandBufferKHR");
+  fns.retain = resolve<clRetainCommandBufferKHR_fn>(platform,
+                                                    "clRetainCommandBufferKHR");
   fns.release = resolve<clReleaseCommandBufferKHR_fn>(
       platform, "clReleaseCommandBufferKHR");
   fns.barrier = resolve<clCommandBarrierWithWaitListKHR_fn>(
       platform, "clCommandBarrierWithWaitListKHR");
   fns.ndrange = resolve<clCommandNDRangeKernelKHR_fn>(
       platform, "clCommandNDRangeKernelKHR");
-  fns.copy_buffer = resolve<clCommandCopyBufferKHR_fn>(
-      platform, "clCommandCopyBufferKHR");
+  fns.copy_buffer =
+      resolve<clCommandCopyBufferKHR_fn>(platform, "clCommandCopyBufferKHR");
   fns.copy_buffer_rect = resolve<clCommandCopyBufferRectKHR_fn>(
       platform, "clCommandCopyBufferRectKHR");
-  fns.fill_buffer = resolve<clCommandFillBufferKHR_fn>(
-      platform, "clCommandFillBufferKHR");
-  fns.copy_image = resolve<clCommandCopyImageKHR_fn>(
-      platform, "clCommandCopyImageKHR");
+  fns.fill_buffer =
+      resolve<clCommandFillBufferKHR_fn>(platform, "clCommandFillBufferKHR");
+  fns.copy_image =
+      resolve<clCommandCopyImageKHR_fn>(platform, "clCommandCopyImageKHR");
   fns.copy_image_to_buffer = resolve<clCommandCopyImageToBufferKHR_fn>(
       platform, "clCommandCopyImageToBufferKHR");
   fns.copy_buffer_to_image = resolve<clCommandCopyBufferToImageKHR_fn>(
       platform, "clCommandCopyBufferToImageKHR");
-  fns.fill_image = resolve<clCommandFillImageKHR_fn>(
-      platform, "clCommandFillImageKHR");
+  fns.fill_image =
+      resolve<clCommandFillImageKHR_fn>(platform, "clCommandFillImageKHR");
 
   if (!fns.create || !fns.finalize || !fns.release || !fns.ndrange)
     fns = command_buffer_fns{};
@@ -182,6 +186,7 @@ cl_int join_session(const std::shared_ptr<recording_session> &session,
   // dependencies of the recorded commands.
   session->explicit_sync = true;
   sessions()[queue] = session;
+  REC_LOG("queue transitively joined the recording session");
   return CL_SUCCESS;
 }
 
@@ -248,8 +253,8 @@ cl_int record_command(recording_session &session, cl_command_queue queue,
                       cl_uint num_events, const cl_event *event_wait_list,
                       cl_event *event, RecordFn record) {
   std::vector<cl_sync_point_khr> sync_points;
-  cl_int error = translate_wait_list(session, num_events, event_wait_list,
-                                     sync_points);
+  cl_int error =
+      translate_wait_list(session, num_events, event_wait_list, sync_points);
   if (error != CL_SUCCESS)
     return error;
 
@@ -289,6 +294,9 @@ cl_int finalize_session(const std::shared_ptr<recording_session> &session,
   cl_int error = session->fns->finalize(session->command_buffer);
   if (error != CL_SUCCESS)
     return error;
+
+  REC_LOG("finalized command-buffer with %zu command(s)",
+          session->num_commands);
 
   destroy_session_events(*session);
   for (cl_command_queue queue : session->queues)
@@ -346,6 +354,8 @@ static CL_API_ENTRY cl_int CL_API_CALL clBeginRecordingCommandBufferLAYER(
   session->fns = fns;
   session->queues.assign(queues, queues + num_queues);
   session->explicit_sync = num_queues > 1 || queue_is_out_of_order(queues[0]);
+
+  REC_LOG("began recording %u queue(s)", num_queues);
 
   for (cl_command_queue queue : session->queues) {
     // A command-buffer created with a single queue accepts NULL as the
@@ -427,8 +437,7 @@ static CL_API_ENTRY cl_int CL_API_CALL clGetCommandQueueRecordingInfoLAYER(
     return CL_SUCCESS;
   }
   case CL_QUEUE_RECORDED_COMMAND_COUNT_LAYER: {
-    cl_uint count =
-        session ? static_cast<cl_uint>(session->num_commands) : 0u;
+    cl_uint count = session ? static_cast<cl_uint>(session->num_commands) : 0u;
     if (param_value) {
       if (param_value_size < sizeof(count))
         return CL_INVALID_VALUE;
@@ -464,17 +473,18 @@ static CL_API_ENTRY cl_int CL_API_CALL clEnqueueNDRangeKernel_wrap(
         command_queue, kernel, work_dim, global_work_offset, global_work_size,
         local_work_size, num_events_in_wait_list, event_wait_list, event);
   }
-  const cl_command_queue record_queue = session->command_queue_for(command_queue);
+  const cl_command_queue record_queue =
+      session->command_queue_for(command_queue);
 
   return record_command(
       *session, command_queue, num_events_in_wait_list, event_wait_list, event,
-      [&](cl_uint num_sync_points, const cl_sync_point_khr *sync_point_wait_list,
+      [&](cl_uint num_sync_points,
+          const cl_sync_point_khr *sync_point_wait_list,
           cl_sync_point_khr *sync_point) {
-        return session->fns->ndrange(session->command_buffer, record_queue,
-                                     nullptr, kernel, work_dim,
-                                     global_work_offset, global_work_size,
-                                     local_work_size, num_sync_points,
-                                     sync_point_wait_list, sync_point, nullptr);
+        return session->fns->ndrange(
+            session->command_buffer, record_queue, nullptr, kernel, work_dim,
+            global_work_offset, global_work_size, local_work_size,
+            num_sync_points, sync_point_wait_list, sync_point, nullptr);
       });
 }
 
@@ -491,22 +501,23 @@ static CL_API_ENTRY cl_int CL_API_CALL clEnqueueCopyBuffer_wrap(
     if (error != CL_SUCCESS)
       return error;
     lock.unlock();
-    return tdispatch->clEnqueueCopyBuffer(command_queue, src_buffer, dst_buffer,
-                                          src_offset, dst_offset, size,
-                                          num_events_in_wait_list,
-                                          event_wait_list, event);
+    return tdispatch->clEnqueueCopyBuffer(
+        command_queue, src_buffer, dst_buffer, src_offset, dst_offset, size,
+        num_events_in_wait_list, event_wait_list, event);
   }
-  const cl_command_queue record_queue = session->command_queue_for(command_queue);
+  const cl_command_queue record_queue =
+      session->command_queue_for(command_queue);
   if (!session->fns->copy_buffer)
     return CL_INVALID_OPERATION;
 
   return record_command(
       *session, command_queue, num_events_in_wait_list, event_wait_list, event,
-      [&](cl_uint num_sync_points, const cl_sync_point_khr *sync_point_wait_list,
+      [&](cl_uint num_sync_points,
+          const cl_sync_point_khr *sync_point_wait_list,
           cl_sync_point_khr *sync_point) {
         return session->fns->copy_buffer(
-            session->command_buffer, record_queue, src_buffer, dst_buffer,
-            src_offset, dst_offset, size, num_sync_points,
+            session->command_buffer, record_queue, nullptr, src_buffer,
+            dst_buffer, src_offset, dst_offset, size, num_sync_points,
             sync_point_wait_list, sync_point, nullptr);
       });
 }
@@ -524,21 +535,22 @@ static CL_API_ENTRY cl_int CL_API_CALL clEnqueueFillBuffer_wrap(
     if (error != CL_SUCCESS)
       return error;
     lock.unlock();
-    return tdispatch->clEnqueueFillBuffer(command_queue, buffer, pattern,
-                                          pattern_size, offset, size,
-                                          num_events_in_wait_list,
-                                          event_wait_list, event);
+    return tdispatch->clEnqueueFillBuffer(
+        command_queue, buffer, pattern, pattern_size, offset, size,
+        num_events_in_wait_list, event_wait_list, event);
   }
-  const cl_command_queue record_queue = session->command_queue_for(command_queue);
+  const cl_command_queue record_queue =
+      session->command_queue_for(command_queue);
   if (!session->fns->fill_buffer)
     return CL_INVALID_OPERATION;
 
   return record_command(
       *session, command_queue, num_events_in_wait_list, event_wait_list, event,
-      [&](cl_uint num_sync_points, const cl_sync_point_khr *sync_point_wait_list,
+      [&](cl_uint num_sync_points,
+          const cl_sync_point_khr *sync_point_wait_list,
           cl_sync_point_khr *sync_point) {
         return session->fns->fill_buffer(
-            session->command_buffer, record_queue, buffer, pattern,
+            session->command_buffer, record_queue, nullptr, buffer, pattern,
             pattern_size, offset, size, num_sync_points, sync_point_wait_list,
             sync_point, nullptr);
       });
@@ -557,22 +569,23 @@ static CL_API_ENTRY cl_int CL_API_CALL clEnqueueCopyImage_wrap(
     if (error != CL_SUCCESS)
       return error;
     lock.unlock();
-    return tdispatch->clEnqueueCopyImage(command_queue, src_image, dst_image,
-                                         src_origin, dst_origin, region,
-                                         num_events_in_wait_list,
-                                         event_wait_list, event);
+    return tdispatch->clEnqueueCopyImage(
+        command_queue, src_image, dst_image, src_origin, dst_origin, region,
+        num_events_in_wait_list, event_wait_list, event);
   }
-  const cl_command_queue record_queue = session->command_queue_for(command_queue);
+  const cl_command_queue record_queue =
+      session->command_queue_for(command_queue);
   if (!session->fns->copy_image)
     return CL_INVALID_OPERATION;
 
   return record_command(
       *session, command_queue, num_events_in_wait_list, event_wait_list, event,
-      [&](cl_uint num_sync_points, const cl_sync_point_khr *sync_point_wait_list,
+      [&](cl_uint num_sync_points,
+          const cl_sync_point_khr *sync_point_wait_list,
           cl_sync_point_khr *sync_point) {
         return session->fns->copy_image(
-            session->command_buffer, record_queue, src_image, dst_image,
-            src_origin, dst_origin, region, num_sync_points,
+            session->command_buffer, record_queue, nullptr, src_image,
+            dst_image, src_origin, dst_origin, region, num_sync_points,
             sync_point_wait_list, sync_point, nullptr);
       });
 }
@@ -591,17 +604,19 @@ static CL_API_ENTRY cl_int CL_API_CALL clEnqueueBarrierWithWaitList_wrap(
     return tdispatch->clEnqueueBarrierWithWaitList(
         command_queue, num_events_in_wait_list, event_wait_list, event);
   }
-  const cl_command_queue record_queue = session->command_queue_for(command_queue);
+  const cl_command_queue record_queue =
+      session->command_queue_for(command_queue);
   if (!session->fns->barrier)
     return CL_INVALID_OPERATION;
 
   return record_command(
       *session, command_queue, num_events_in_wait_list, event_wait_list, event,
-      [&](cl_uint num_sync_points, const cl_sync_point_khr *sync_point_wait_list,
+      [&](cl_uint num_sync_points,
+          const cl_sync_point_khr *sync_point_wait_list,
           cl_sync_point_khr *sync_point) {
         return session->fns->barrier(session->command_buffer, record_queue,
-                                     num_sync_points, sync_point_wait_list,
-                                     sync_point, nullptr);
+                                     nullptr, num_sync_points,
+                                     sync_point_wait_list, sync_point, nullptr);
       });
 }
 
@@ -621,17 +636,19 @@ static CL_API_ENTRY cl_int CL_API_CALL clEnqueueMarkerWithWaitList_wrap(
     return tdispatch->clEnqueueMarkerWithWaitList(
         command_queue, num_events_in_wait_list, event_wait_list, event);
   }
-  const cl_command_queue record_queue = session->command_queue_for(command_queue);
+  const cl_command_queue record_queue =
+      session->command_queue_for(command_queue);
   if (!session->fns->barrier)
     return CL_INVALID_OPERATION;
 
   return record_command(
       *session, command_queue, num_events_in_wait_list, event_wait_list, event,
-      [&](cl_uint num_sync_points, const cl_sync_point_khr *sync_point_wait_list,
+      [&](cl_uint num_sync_points,
+          const cl_sync_point_khr *sync_point_wait_list,
           cl_sync_point_khr *sync_point) {
         return session->fns->barrier(session->command_buffer, record_queue,
-                                     num_sync_points, sync_point_wait_list,
-                                     sync_point, nullptr);
+                                     nullptr, num_sync_points,
+                                     sync_point_wait_list, sync_point, nullptr);
       });
 }
 
@@ -646,26 +663,24 @@ static CL_API_ENTRY cl_int CL_API_CALL clEnqueueReadBuffer_wrap(
     if (find_session(command_queue))
       return CL_INVALID_OPERATION;
   }
-  return tdispatch->clEnqueueReadBuffer(command_queue, buffer, blocking_read,
-                                        offset, size, ptr,
-                                        num_events_in_wait_list,
-                                        event_wait_list, event);
+  return tdispatch->clEnqueueReadBuffer(
+      command_queue, buffer, blocking_read, offset, size, ptr,
+      num_events_in_wait_list, event_wait_list, event);
 }
 
-static CL_API_ENTRY cl_int CL_API_CALL clEnqueueWriteBuffer_wrap(
-    cl_command_queue command_queue, cl_mem buffer, cl_bool blocking_write,
-    size_t offset, size_t size, const void *ptr,
-    cl_uint num_events_in_wait_list, const cl_event *event_wait_list,
-    cl_event *event) {
+static CL_API_ENTRY cl_int CL_API_CALL
+clEnqueueWriteBuffer_wrap(cl_command_queue command_queue, cl_mem buffer,
+                          cl_bool blocking_write, size_t offset, size_t size,
+                          const void *ptr, cl_uint num_events_in_wait_list,
+                          const cl_event *event_wait_list, cl_event *event) {
   {
     std::lock_guard<std::mutex> lock(mutex());
     if (find_session(command_queue))
       return CL_INVALID_OPERATION;
   }
-  return tdispatch->clEnqueueWriteBuffer(command_queue, buffer, blocking_write,
-                                         offset, size, ptr,
-                                         num_events_in_wait_list,
-                                         event_wait_list, event);
+  return tdispatch->clEnqueueWriteBuffer(
+      command_queue, buffer, blocking_write, offset, size, ptr,
+      num_events_in_wait_list, event_wait_list, event);
 }
 
 static CL_API_ENTRY void *CL_API_CALL clEnqueueMapBuffer_wrap(
@@ -681,10 +696,9 @@ static CL_API_ENTRY void *CL_API_CALL clEnqueueMapBuffer_wrap(
       return nullptr;
     }
   }
-  return tdispatch->clEnqueueMapBuffer(command_queue, buffer, blocking_map,
-                                       map_flags, offset, size,
-                                       num_events_in_wait_list, event_wait_list,
-                                       event, errcode_ret);
+  return tdispatch->clEnqueueMapBuffer(
+      command_queue, buffer, blocking_map, map_flags, offset, size,
+      num_events_in_wait_list, event_wait_list, event, errcode_ret);
 }
 
 // Finishing a recording queue ends the recording: the command-buffer is
@@ -844,5 +858,26 @@ clInitLayer(cl_uint num_entries, const struct _cl_icd_dispatch *target_dispatch,
   tdispatch = target_dispatch;
   *layer_dispatch_ret = &dispatch;
   *num_entries_out = sizeof(dispatch) / sizeof(dispatch.clGetPlatformIDs);
+  return CL_SUCCESS;
+}
+
+CL_API_ENTRY cl_int CL_API_CALL clInitLayerWithProperties(
+    cl_uint num_entries, const struct _cl_icd_dispatch *target_dispatch,
+    cl_uint *num_entries_out,
+    const struct _cl_icd_dispatch **layer_dispatch_ret,
+    const cl_layer_properties *properties) {
+  // No layer properties are currently defined, so any list other than an
+  // empty one is rejected.
+  if (properties && *properties != CL_LAYER_PROPERTIES_LIST_END)
+    return CL_INVALID_VALUE;
+
+  return clInitLayer(num_entries, target_dispatch, num_entries_out,
+                     layer_dispatch_ret);
+}
+
+CL_API_ENTRY cl_int CL_API_CALL clDeinitLayer(void) {
+  std::lock_guard<std::mutex> lock(mutex());
+  sessions().clear();
+  platform_fns().clear();
   return CL_SUCCESS;
 }

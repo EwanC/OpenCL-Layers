@@ -14,8 +14,6 @@
 
 :data-uri:
 :icons: font
-include::../config/attribs.txt[]
-include::{generated}/api/api-dictionary.asciidoc[]
 
 = cl_layer_command_buffer_record
 
@@ -25,18 +23,19 @@ include::{generated}/api/api-dictionary.asciidoc[]
 
 == Contact
 
-Please see the *OpenCL-Layers* repository issue tracker:
-https://github.com/KhronosGroup/OpenCL-Layers
+Please see the *CLRecordLayer* repository issue tracker:
+https://github.com/EwanC/OpenCL-Layers
 
 == Contributors
 
 // spell-checker: disable
-OpenCL-Layers contributors. +
+CLRecordLayer contributors. +
 // spell-checker: enable
 
 == Notice
 
-include::../copyrights.txt[]
+Copyright (c) 2024 The Khronos Group Inc. +
+SPDX-License-Identifier: Apache-2.0
 
 == Status
 

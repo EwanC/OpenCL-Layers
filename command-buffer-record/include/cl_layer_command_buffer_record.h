@@ -32,19 +32,19 @@
 extern "C" {
 #endif
 
-#define CL_LAYER_COMMAND_BUFFER_RECORD_EXTENSION_NAME \
-    "cl_layer_command_buffer_record"
+#define CL_LAYER_COMMAND_BUFFER_RECORD_EXTENSION_NAME                          \
+  "cl_layer_command_buffer_record"
 
 typedef cl_uint cl_queue_recording_info_layer;
 typedef cl_uint cl_queue_recording_state_layer;
 
 /* cl_queue_recording_info_layer */
-#define CL_QUEUE_RECORDING_STATE_LAYER          0x8000
-#define CL_QUEUE_RECORDED_COMMAND_BUFFER_LAYER  0x8001
-#define CL_QUEUE_RECORDED_COMMAND_COUNT_LAYER   0x8002
+#define CL_QUEUE_RECORDING_STATE_LAYER 0x8000
+#define CL_QUEUE_RECORDED_COMMAND_BUFFER_LAYER 0x8001
+#define CL_QUEUE_RECORDED_COMMAND_COUNT_LAYER 0x8002
 
 /* cl_queue_recording_state_layer */
-#define CL_QUEUE_RECORDING_STATE_NONE_LAYER      0
+#define CL_QUEUE_RECORDING_STATE_NONE_LAYER 0
 #define CL_QUEUE_RECORDING_STATE_RECORDING_LAYER 1
 #define CL_QUEUE_RECORDING_STATE_FINALIZED_LAYER 2
 
@@ -52,49 +52,37 @@ typedef cl_uint cl_queue_recording_state_layer;
  * recording queue is recorded into a command-buffer created over `queues`
  * instead of being executed. `properties` is forwarded verbatim to
  * clCreateCommandBufferKHR(). */
-typedef cl_int CL_API_CALL
-clBeginRecordingCommandBufferLAYER_t(
-    cl_uint                                 num_queues,
-    const cl_command_queue*                 queues,
-    const cl_command_buffer_properties_khr* properties);
+typedef cl_int CL_API_CALL clBeginRecordingCommandBufferLAYER_t(
+    cl_uint num_queues, const cl_command_queue *queues,
+    const cl_command_buffer_properties_khr *properties);
 
-typedef clBeginRecordingCommandBufferLAYER_t *
-clBeginRecordingCommandBufferLAYER_fn;
+typedef clBeginRecordingCommandBufferLAYER_t
+    *clBeginRecordingCommandBufferLAYER_fn;
 
 /* Ends the recording session `command_queue` takes part in, finalizes the
  * command-buffer and returns it. Ownership of the returned command-buffer is
  * transferred to the caller, which has to release it with
  * clReleaseCommandBufferKHR(). */
-typedef cl_int CL_API_CALL
-clEndRecordingCommandBufferLAYER_t(
-    cl_command_queue       command_queue,
-    cl_command_buffer_khr* command_buffer_ret);
+typedef cl_int CL_API_CALL clEndRecordingCommandBufferLAYER_t(
+    cl_command_queue command_queue, cl_command_buffer_khr *command_buffer_ret);
 
 /* Returns the command-buffer finalized by the latest clFinish() performed on
  * `command_queue`. The returned command-buffer is retained on behalf of the
  * caller, which has to release it with clReleaseCommandBufferKHR(). */
-typedef clEndRecordingCommandBufferLAYER_t *
-clEndRecordingCommandBufferLAYER_fn;
+typedef clEndRecordingCommandBufferLAYER_t *clEndRecordingCommandBufferLAYER_fn;
 
-typedef cl_int CL_API_CALL
-clGetRecordedCommandBufferLAYER_t(
-    cl_command_queue       command_queue,
-    cl_command_buffer_khr* command_buffer_ret);
+typedef cl_int CL_API_CALL clGetRecordedCommandBufferLAYER_t(
+    cl_command_queue command_queue, cl_command_buffer_khr *command_buffer_ret);
 
-typedef clGetRecordedCommandBufferLAYER_t *
-clGetRecordedCommandBufferLAYER_fn;
+typedef clGetRecordedCommandBufferLAYER_t *clGetRecordedCommandBufferLAYER_fn;
 
 /* Queries the recording state of `command_queue`. */
-typedef cl_int CL_API_CALL
-clGetCommandQueueRecordingInfoLAYER_t(
-    cl_command_queue              command_queue,
-    cl_queue_recording_info_layer param_name,
-    size_t                        param_value_size,
-    void*                         param_value,
-    size_t*                       param_value_size_ret);
+typedef cl_int CL_API_CALL clGetCommandQueueRecordingInfoLAYER_t(
+    cl_command_queue command_queue, cl_queue_recording_info_layer param_name,
+    size_t param_value_size, void *param_value, size_t *param_value_size_ret);
 
-typedef clGetCommandQueueRecordingInfoLAYER_t *
-clGetCommandQueueRecordingInfoLAYER_fn;
+typedef clGetCommandQueueRecordingInfoLAYER_t
+    *clGetCommandQueueRecordingInfoLAYER_fn;
 
 #ifdef __cplusplus
 }

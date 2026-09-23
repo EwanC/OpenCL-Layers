@@ -16,8 +16,8 @@
  * OpenCL is a trademark of Apple Inc. used under license by Khronos.
  */
 
-#ifndef __COMMAND_BUFFER_RECORD_HPP
-#define __COMMAND_BUFFER_RECORD_HPP
+#ifndef __COMMAND_BUFFER_RECORD_H
+#define __COMMAND_BUFFER_RECORD_H
 
 #include "cl_layer_command_buffer_record.h"
 
@@ -84,4 +84,4 @@ extern const struct _cl_icd_dispatch *tdispatch;
 
 extern void _init_dispatch(void);
 
-#endif /* __COMMAND_BUFFER_RECORD_HPP */
+#endif /* __COMMAND_BUFFER_RECORD_H */
