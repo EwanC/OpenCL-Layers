@@ -53,20 +53,15 @@ and declared in [include/cl_layer_command_buffer_record.h](include/cl_layer_comm
 OpenCL layers are shared libraries, using the following instructions the layer
 will be built as `libCLRecordLayer.so`/`CLRecordLayer.dll`.
 
-This directory is a self contained CMake project, so it can be configured
-directly as the root of the build, either from its own repository or from
-inside the [OpenCL-Layers](https://github.com/EwanC/OpenCL-Layers) collection:
+This directory is a standalone CMake project, it is configured directly as the
+root of the build, either from its own repository or from inside the
+[OpenCL-Layers](https://github.com/EwanC/OpenCL-Layers) collection:
 
 ```sh
 $ git clone https://github.com/EwanC/OpenCL-Layers
 $ cmake -S OpenCL-Layers/command-buffer-record -B build
 $ cmake --build ./build
 ```
-
-When instead it is configured as a sub-directory of the OpenCL-Layers
-collection, the layer is built using the OpenCL headers and common compile
-options provided by the parent project, and the tests documented below are not
-added.
 
 The project requires [OpenCL-Headers](https://github.com/KhronosGroup/OpenCL-Headers)
 and [OpenCL-ICD-Loader](https://github.com/KhronosGroup/OpenCL-ICD-Loader) to
