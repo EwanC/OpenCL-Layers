@@ -1,5 +1,4 @@
-# Copyright (c) 2024 The Khronos Group Inc.
-# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Ewan Crawford
 
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 project(CLRecordLayer VERSION 0.1.0 LANGUAGES CXX)

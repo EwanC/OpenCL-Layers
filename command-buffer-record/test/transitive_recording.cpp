@@ -1,5 +1,4 @@
-// Copyright (c) 2024 The Khronos Group Inc.
-// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 Ewan Crawford
 //
 // Tests that a queue which is not recording transitively enters the recording
 // state when it enqueues a command depending on an event returned by a

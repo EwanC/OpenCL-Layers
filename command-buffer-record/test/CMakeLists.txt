@@ -1,5 +1,4 @@
-# Copyright (c) 2024 The Khronos Group Inc.
-# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Ewan Crawford
 
 find_program(FileCheck NAMES "filecheck" "FileCheck")
 if (NOT FileCheck)
